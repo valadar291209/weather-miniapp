@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Погодный мини-апп</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: var(--tg-theme-bg-color);
+            color: var(--tg-theme-text-color);
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .card {
+            background: var(--tg-theme-secondary-bg-color);
+            border-radius: 24px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input {
+            flex: 1;
+            padding: 12px;
+            border-radius: 16px;
+            border: 1px solid var(--tg-theme-hint-color);
+            background: var(--tg-theme-bg-color);
+            color: var(--tg-theme-text-color);
+            font-size: 16px;
+        }
+        button {
+            background: var(--tg-theme-button-color);
+            color: var(--tg-theme-button-text-color);
+            border: none;
+            border-radius: 16px;
+            padding: 12px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .weather-icon {
+            text-align: center;
+            margin: 16px 0;
+        }
+        .weather-icon img {
+            width: 80px;
+            height: 80px;
+        }
+        .temp {
+            font-size: 48px;
+            font-weight: 800;
+            text-align: center;
+            margin: 12px 0;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid var(--tg-theme-hint-color);
+        }
+        .error {
+            color: #e53935;
+            text-align: center;
+            margin-top: 12px;
+        }
+        .footer {
+            text-align: center;
+            font-size: 12px;
+            margin-top: 24px;
+            color: var(--tg-theme-hint-color);
+        }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h1>🌤 Погода</h1>
+    <div class="input-group">
+        <input type="text" id="cityInput" placeholder="Введите город, например: Москва">
+        <button id="getWeatherBtn">Узнать</button>
+    </div>
+    <div id="weatherResult">
+        <!-- сюда подставится результат -->
+        <div style="text-align:center; opacity:0.6;">Введите город и нажмите кнопку</div>
+    </div>
+</div>
+<div class="footer">
+    Данные: Open-Meteo
+</div>
+
+<script>
+    // Инициализация Telegram WebApp
+    let tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
+
+    // Элементы DOM
+    const cityInput = document.getElementById('cityInput');
+    const getWeatherBtn = document.getElementById('getWeatherBtn');
+    const weatherResult = document.getElementById('weatherResult');
+
+    // Функция получения координат по названию города (геокодинг от Open-Meteo)
+    async function getCoordinates(cityName) {
+        const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=ru&format=json`;
+        const response = await fetch(geoUrl);
+        const data = await response.json();
+        if (!data.results || data.results.length === 0) {
+            throw new Error('Город не найден');
+        }
+        const result = data.results[0];
+        return { lat: result.latitude, lon: result.longitude, name: result.name };
+    }
+
+    // Функция получения погоды по координатам
+    async function getWeather(lat, lon) {
+        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`;
+        const response = await fetch(weatherUrl);
+        const data = await response.json();
+        if (!data.current_weather) throw new Error('Нет данных о погоде');
+        return data.current_weather;
+    }
+
+    // Вспомогательная функция для перевода кода погоды в текст и эмодзи
+    function getWeatherDesc(code) {
+        const map = {
+            0: '☀️ Ясно',
+            1: '🌤 В основном ясно',
+            2: '⛅️ Переменная облачность',
+            3: '☁️ Пасмурно',
+            45: '🌫 Туман',
+            51: '🌧 Морось',
+            61: '🌧 Дождь',
+            71: '❄️ Снегопад'
+        };
+        return map[code] || '🌡 Узнайте погоду сами';
+    }
+
+    // Основная функция загрузки и отображения погоды
+    async function loadWeather(cityName) {
+        // Показываем индикатор загрузки
+        weatherResult.innerHTML = '<div style="text-align:center;">Загрузка...</div>';
+
+        try {
+            // 1. Получаем координаты города
+            const { lat, lon, name: resolvedName } = await getCoordinates(cityName);
+            // 2. Получаем текущую погоду
+            const current = await getWeather(lat, lon);
+            const temperature = Math.round(current.temperature);
+            const windspeed = current.windspeed;
+            const weatherCode = current.weathercode;
+            const weatherText = getWeatherDesc(weatherCode);
+
+            // 3. Рисуем HTML-карточку с результатом
+            weatherResult.innerHTML = `
+                <div style="text-align:center;">
+                    <div class="weather-icon">
+                        <img src="https://open-meteo.com/images/weather-icons/${weatherCode}.svg" alt="иконка"
+                             onerror="this.src='https://open-meteo.com/images/weather-icons/default.svg'">
+                    </div>
+                    <div class="temp">${temperature}°C</div>
+                    <div style="font-size:20px; font-weight:500;">${resolvedName}</div>
+                    <div style="margin-top:8px;">${weatherText}</div>
+                    <div class="info-row">
+                        <span>💨 Ветер: ${windspeed} км/ч</span>
+                        <span>💧 Влажность: — (нет в free)</span>
+                    </div>
+                </div>
+            `;
+        } catch (err) {
+            console.error(err);
+            weatherResult.innerHTML = `<div class="error">❌ Ошибка: ${err.message}</div>`;
+        }
+    }
+
+    // Обработчик нажатия кнопки
+    getWeatherBtn.addEventListener('click', () => {
+        const city = cityInput.value.trim();
+        if (city === "") {
+            weatherResult.innerHTML = '<div class="error">Введите название города</div>';
+            return;
+        }
+        loadWeather(city);
+    });
+
+    // Можно также обработать клавишу Enter
+    cityInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            getWeatherBtn.click();
+        }
+    });
+</script>
+</body>
+</html>
