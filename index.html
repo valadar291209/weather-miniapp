@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Погодный мини-апп</title>
+    <title>Погода</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * {
@@ -95,7 +95,6 @@
         <button id="getWeatherBtn">Узнать</button>
     </div>
     <div id="weatherResult">
-        <!-- сюда подставится результат -->
         <div style="text-align:center; opacity:0.6;">Введите город и нажмите кнопку</div>
     </div>
 </div>
@@ -105,19 +104,25 @@
 
 <script>
     // Инициализация Telegram WebApp
-    let tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
+    let tg = null;
+    if (window.Telegram && window.Telegram.WebApp) {
+        tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+    } else {
+        console.log("Запущено вне Telegram");
+    }
 
     // Элементы DOM
     const cityInput = document.getElementById('cityInput');
     const getWeatherBtn = document.getElementById('getWeatherBtn');
     const weatherResult = document.getElementById('weatherResult');
 
-    // Функция получения координат по названию города (геокодинг от Open-Meteo)
+    // Функция получения координат по названию города
     async function getCoordinates(cityName) {
         const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=ru&format=json`;
         const response = await fetch(geoUrl);
+        if (!response.ok) throw new Error('Ошибка геокодера');
         const data = await response.json();
         if (!data.results || data.results.length === 0) {
             throw new Error('Город не найден');
@@ -130,12 +135,13 @@
     async function getWeather(lat, lon) {
         const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`;
         const response = await fetch(weatherUrl);
+        if (!response.ok) throw new Error('Ошибка получения погоды');
         const data = await response.json();
         if (!data.current_weather) throw new Error('Нет данных о погоде');
         return data.current_weather;
     }
 
-    // Вспомогательная функция для перевода кода погоды в текст и эмодзи
+    // Перевод кода погоды в текст и эмодзи
     function getWeatherDesc(code) {
         const map = {
             0: '☀️ Ясно',
@@ -150,30 +156,34 @@
         return map[code] || '🌡 Узнайте погоду сами';
     }
 
+    // Получение иконки погоды (open-meteo предоставляет svg)
+    function getWeatherIconUrl(code) {
+        return `https://open-meteo.com/images/weather-icons/${code}.svg`;
+    }
+
     // Основная функция загрузки и отображения погоды
     async function loadWeather(cityName) {
-        // Показываем индикатор загрузки
         weatherResult.innerHTML = '<div style="text-align:center;">Загрузка...</div>';
 
         try {
-            // 1. Получаем координаты города
-            const { lat, lon, name: resolvedName } = await getCoordinates(cityName);
+            // 1. Получаем координаты
+            const { lat, lon, name } = await getCoordinates(cityName);
             // 2. Получаем текущую погоду
             const current = await getWeather(lat, lon);
             const temperature = Math.round(current.temperature);
             const windspeed = current.windspeed;
             const weatherCode = current.weathercode;
             const weatherText = getWeatherDesc(weatherCode);
+            const iconUrl = getWeatherIconUrl(weatherCode);
 
-            // 3. Рисуем HTML-карточку с результатом
+            // 3. Рисуем результат
             weatherResult.innerHTML = `
                 <div style="text-align:center;">
                     <div class="weather-icon">
-                        <img src="https://open-meteo.com/images/weather-icons/${weatherCode}.svg" alt="иконка"
-                             onerror="this.src='https://open-meteo.com/images/weather-icons/default.svg'">
+                        <img src="${iconUrl}" alt="иконка" onerror="this.src='https://open-meteo.com/images/weather-icons/default.svg'">
                     </div>
                     <div class="temp">${temperature}°C</div>
-                    <div style="font-size:20px; font-weight:500;">${resolvedName}</div>
+                    <div style="font-size:20px; font-weight:500;">${name}</div>
                     <div style="margin-top:8px;">${weatherText}</div>
                     <div class="info-row">
                         <span>💨 Ветер: ${windspeed} км/ч</span>
@@ -181,6 +191,12 @@
                     </div>
                 </div>
             `;
+
+            // Если есть доступ к Telegram WebApp, можно отправить данные боту (опционально)
+            if (tg) {
+                // например, отправим боту строку с погодой
+                // tg.sendData(JSON.stringify({ city: name, temp: temperature, wind: windspeed, desc: weatherText }));
+            }
         } catch (err) {
             console.error(err);
             weatherResult.innerHTML = `<div class="error">❌ Ошибка: ${err.message}</div>`;
@@ -197,7 +213,7 @@
         loadWeather(city);
     });
 
-    // Можно также обработать клавишу Enter
+    // Обработчик нажатия Enter в поле ввода
     cityInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             getWeatherBtn.click();
